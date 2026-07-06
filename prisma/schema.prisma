@@ -1,0 +1,263 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+}
+
+model Store {
+  id              String    @id @default(cuid())
+  shop            String    @unique
+  ownerEmail      String
+  ownerName       String?
+  planTier        PlanTier  @default(TRIAL)
+  trialEndsAt     DateTime?
+  billingId       String?
+  billingStatus   String?
+  timezone        String    @default("UTC")
+  digestTime      String    @default("09:00")
+  digestEnabled   Boolean   @default(true)
+  slackWebhookUrl String?
+  whatsappNumber  String?
+  onboardingDone  Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  staffMembers      StaffMember[]
+  shiftNotes        ShiftNote[]
+  shiftNoteComments ShiftNoteComment[]
+  orderAnnotations  OrderAnnotation[]
+  customerNotes     CustomerNote[]
+  supplierNotes     SupplierNote[]
+  suppliers         Supplier[]
+  auditLogs         AuditLog[]
+  pendingItems      PendingItem[]
+  digestLogs        DigestLog[]
+}
+
+enum PlanTier {
+  TRIAL
+  SOLO
+  TEAM
+  AGENCY
+}
+
+model StaffMember {
+  id          String    @id @default(cuid())
+  storeId     String
+  store       Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name        String
+  email       String
+  role        StaffRole @default(STAFF)
+  inviteToken String?   @unique
+  inviteExpiresAt DateTime?
+  acceptedAt  DateTime?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  shiftNotes        ShiftNote[]
+  shiftNoteComments ShiftNoteComment[]
+  orderAnnotations  OrderAnnotation[]
+  customerNotes     CustomerNote[]
+  supplierNotes     SupplierNote[]
+  auditLogs         AuditLog[]
+  pendingItems      PendingItem[]
+
+  @@unique([storeId, email])
+}
+
+enum StaffRole {
+  OWNER
+  MANAGER
+  STAFF
+}
+
+model ShiftNote {
+  id            String      @id @default(cuid())
+  storeId       String
+  store         Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  staffMemberId String
+  staffMember   StaffMember @relation(fields: [staffMemberId], references: [id])
+  shiftDate     DateTime    @default(now())
+  summary       String      @db.Text
+  whatWasDone   String?     @db.Text
+  whatIsPending String?     @db.Text
+  needsOwner    Boolean     @default(false)
+  resolvedAt    DateTime?
+  resolvedBy    String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  comments ShiftNoteComment[]
+}
+
+model ShiftNoteComment {
+  id            String      @id @default(cuid())
+  storeId       String
+  store         Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  shiftNoteId   String
+  shiftNote     ShiftNote   @relation(fields: [shiftNoteId], references: [id], onDelete: Cascade)
+  staffMemberId String
+  staffMember   StaffMember @relation(fields: [staffMemberId], references: [id])
+  body          String      @db.Text
+  createdAt     DateTime    @default(now())
+}
+
+model OrderAnnotation {
+  id             String      @id @default(cuid())
+  storeId        String
+  store          Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  staffMemberId  String
+  staffMember    StaffMember @relation(fields: [staffMemberId], references: [id])
+  shopifyOrderId String
+  orderNumber    String
+  note           String      @db.Text
+  needsOwner     Boolean     @default(false)
+  resolvedAt     DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([storeId, shopifyOrderId])
+}
+
+model CustomerNote {
+  id                String      @id @default(cuid())
+  storeId           String
+  store             Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  staffMemberId     String
+  staffMember       StaffMember @relation(fields: [staffMemberId], references: [id])
+  shopifyCustomerId String
+  customerName      String
+  customerEmail     String?
+  note              String      @db.Text
+  isWarning         Boolean     @default(false)
+  createdAt         DateTime    @default(now())
+
+  @@index([storeId, shopifyCustomerId])
+}
+
+model Supplier {
+  id          String   @id @default(cuid())
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name        String
+  contactName String?
+  email       String?
+  phone       String?
+  whatsapp    String?
+  website     String?
+  notes       String?  @db.Text
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  supplierNotes SupplierNote[]
+  products      ProductSupplierLink[]
+}
+
+model ProductSupplierLink {
+  id                String   @id @default(cuid())
+  supplierId        String
+  supplier          Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  shopifyProductId  String
+  productTitle      String
+  createdAt         DateTime @default(now())
+
+  @@unique([supplierId, shopifyProductId])
+  @@index([shopifyProductId])
+}
+
+model SupplierNote {
+  id            String      @id @default(cuid())
+  storeId       String
+  store         Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  supplierId    String
+  supplier      Supplier    @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  staffMemberId String
+  staffMember   StaffMember @relation(fields: [staffMemberId], references: [id])
+  note          String      @db.Text
+  isUrgent      Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+}
+
+model AuditLog {
+  id            String       @id @default(cuid())
+  storeId       String
+  store         Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  staffMemberId String?
+  staffMember   StaffMember? @relation(fields: [staffMemberId], references: [id])
+  actionType    AuditAction
+  resourceType  String
+  resourceId    String
+  resourceLabel String
+  metadata      Json?
+  detectedAt    DateTime     @default(now())
+
+  @@index([storeId, detectedAt])
+  @@index([storeId, resourceId])
+}
+
+enum AuditAction {
+  REFUND_ISSUED
+  ORDER_EDITED
+  ORDER_CANCELLED
+  PRODUCT_PRICE_CHANGED
+  PRODUCT_STOCK_CHANGED
+  DISCOUNT_APPLIED
+  CUSTOMER_TAGGED
+  NOTE_ADDED
+  FULFILLMENT_UPDATED
+}
+
+model PendingItem {
+  id            String      @id @default(cuid())
+  storeId       String
+  store         Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  createdById   String
+  createdBy     StaffMember @relation(fields: [createdById], references: [id])
+  title         String
+  description   String?     @db.Text
+  sourceType    String?
+  sourceId      String?
+  priority      Priority    @default(NORMAL)
+  resolvedAt    DateTime?
+  resolvedNote  String?
+  createdAt     DateTime    @default(now())
+
+  @@index([storeId, resolvedAt])
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  URGENT
+}
+
+model DigestLog {
+  id          String   @id @default(cuid())
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  sentAt      DateTime @default(now())
+  emailSentTo String
+  summary     Json
+}

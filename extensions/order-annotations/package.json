@@ -1,0 +1,8 @@
+{
+  "name": "order-annotations",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "@shopify/ui-extensions": "^2024.4.1"
+  }
+}

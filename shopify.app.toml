@@ -1,0 +1,47 @@
+name = "ShiftLog"
+client_id = "{{ SHOPIFY_API_KEY }}"
+application_url = "{{ APP_URL }}"
+embedded = true
+handle = "shiftlog-team-operations-log"
+
+[build]
+automatically_update_urls_on_dev = true
+dev_store_url = ""
+
+[access_scopes]
+scopes = "read_orders,write_orders,read_products,write_products"
+
+[auth]
+redirect_urls = [
+  "{{ APP_URL }}/auth/callback",
+  "{{ APP_URL }}/auth/shopify/callback"
+]
+
+[webhooks]
+api_version = "2025-07"
+
+  [[webhooks.subscriptions]]
+  topics = ["app/uninstalled"]
+  uri = "/webhooks"
+
+  [[webhooks.subscriptions]]
+  topics = ["app_subscriptions/update"]
+  uri = "/webhooks/billing"
+
+[pos]
+embedded = false
+
+[[extensions]]
+type = "ui_extension"
+name = "order-annotations"
+handle = "shiftlog-order-annotations"
+
+[[extensions]]
+type = "ui_extension"
+name = "customer-notes"
+handle = "shiftlog-customer-notes"
+
+[[extensions]]
+type = "ui_extension"
+name = "product-supplier"
+handle = "shiftlog-product-supplier"

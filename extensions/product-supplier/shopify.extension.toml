@@ -1,0 +1,10 @@
+api_version = "2024-04"
+
+[[extensions]]
+type = "ui_extension"
+name = "ShiftLog — Supplier Link"
+handle = "shiftlog-product-supplier"
+
+[[extensions.targeting]]
+module = "./src/ProductSupplier.tsx"
+target = "admin.product-details.block.render"
