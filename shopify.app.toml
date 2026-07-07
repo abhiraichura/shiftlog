@@ -1,6 +1,6 @@
 name = "ShiftLog"
 client_id = "{{ SHOPIFY_API_KEY }}"
-application_url = "{{ APP_URL }}"
+application_url = "https://shiftlog-production-2a26.up.railway.app"
 embedded = true
 handle = "shiftlog-team-operations-log"
 
@@ -13,8 +13,8 @@ scopes = "read_orders,write_orders,read_products,write_products"
 
 [auth]
 redirect_urls = [
-  "{{ APP_URL }}/auth/callback",
-  "{{ APP_URL }}/auth/shopify/callback"
+  "https://shiftlog-production-2a26.up.railway.app/auth/callback",
+  "https://shiftlog-production-2a26.up.railway.app/auth/shopify/callback"
 ]
 
 [webhooks]
