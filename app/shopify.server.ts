@@ -60,12 +60,13 @@ const shopify = shopifyApp({
     try {
       shopify.registerWebhooks({ session });
     } catch (err) {
-      console.error("[afterAuth] Webhook registration failed (non-fatal):", err);
+      console.error("[afterAuth] Webhook registration failed:", err);
     }
 
     try {
       const existingStore = await prisma.store.findUnique({
         where: { shop: session.shop },
+        include: { staffMembers: true },
       });
 
       if (!existingStore) {
@@ -92,11 +93,34 @@ const shopify = shopifyApp({
             email: shopData.email,
             role: "OWNER",
             acceptedAt: new Date(),
+            isActive: true,
           },
         });
+
+        console.log(`[afterAuth] Store and owner created for ${session.shop}`);
+      } else if (existingStore.staffMembers.length === 0) {
+        // Store exists but owner staff member is missing - fix it
+        const response = await fetch(
+          `https://${session.shop}/admin/api/2024-10/shop.json`,
+          { headers: { "X-Shopify-Access-Token": session.accessToken } }
+        );
+        const { shop: shopData } = await response.json();
+
+        await prisma.staffMember.create({
+          data: {
+            storeId: existingStore.id,
+            name: shopData.shop_owner,
+            email: shopData.email,
+            role: "OWNER",
+            acceptedAt: new Date(),
+            isActive: true,
+          },
+        });
+
+        console.log(`[afterAuth] Missing owner staff member created for ${session.shop}`);
       }
     } catch (err) {
-      console.error("[afterAuth] Store creation failed:", err);
+      console.error("[afterAuth] Store setup failed:", err);
     }
   },
 },
