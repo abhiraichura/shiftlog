@@ -1,5 +1,5 @@
 name = "ShiftLog"
-client_id = "{{ SHOPIFY_API_KEY }}"
+client_id = "8ba94ef76ded91d1660bc1290d004839"
 application_url = "https://shiftlog-production-2a26.up.railway.app"
 embedded = true
 handle = "shiftlog-team-operations-log"
