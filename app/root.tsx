@@ -5,10 +5,14 @@ import {
   Scripts,
   ScrollRestoration,
 } from "@remix-run/react";
-import { type LoaderFunctionArgs } from "@remix-run/node";
-import { addDocumentResponseHeaders } from "~/shopify.server";
+import { type LoaderFunctionArgs, redirect } from "@remix-run/node";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const url = new URL(request.url);
+  // If hitting root with shop param, redirect to /app
+  if (url.pathname === "/" && url.searchParams.get("shop")) {
+    return redirect(`/app?${url.searchParams.toString()}`);
+  }
   return null;
 };
 
