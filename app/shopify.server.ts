@@ -56,46 +56,50 @@ const shopify = shopifyApp({
     },
   },
   hooks: {
-    afterAuth: async ({ session }) => {
+  afterAuth: async ({ session }) => {
+    try {
       shopify.registerWebhooks({ session });
+    } catch (err) {
+      console.error("[afterAuth] Webhook registration failed (non-fatal):", err);
+    }
 
+    try {
       const existingStore = await prisma.store.findUnique({
         where: { shop: session.shop },
       });
 
       if (!existingStore) {
-        try {
-          const response = await fetch(
-            `https://${session.shop}/admin/api/2024-10/shop.json`,
-            { headers: { "X-Shopify-Access-Token": session.accessToken } }
-          );
-          const { shop: shopData } = await response.json();
+        const response = await fetch(
+          `https://${session.shop}/admin/api/2024-10/shop.json`,
+          { headers: { "X-Shopify-Access-Token": session.accessToken } }
+        );
+        const { shop: shopData } = await response.json();
 
-          const store = await prisma.store.create({
-            data: {
-              shop: session.shop,
-              ownerEmail: shopData.email,
-              ownerName: shopData.shop_owner,
-              planTier: "TRIAL",
-              trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-            },
-          });
+        const store = await prisma.store.create({
+          data: {
+            shop: session.shop,
+            ownerEmail: shopData.email,
+            ownerName: shopData.shop_owner,
+            planTier: "TRIAL",
+            trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+          },
+        });
 
-          await prisma.staffMember.create({
-            data: {
-              storeId: store.id,
-              name: shopData.shop_owner,
-              email: shopData.email,
-              role: "OWNER",
-              acceptedAt: new Date(),
-            },
-          });
-        } catch (err) {
-          console.error("[afterAuth] Failed to create store:", err);
-        }
+        await prisma.staffMember.create({
+          data: {
+            storeId: store.id,
+            name: shopData.shop_owner,
+            email: shopData.email,
+            role: "OWNER",
+            acceptedAt: new Date(),
+          },
+        });
       }
-    },
+    } catch (err) {
+      console.error("[afterAuth] Store creation failed:", err);
+    }
   },
+},
   future: {
     v3_webhookAdminContext: true,
   },
