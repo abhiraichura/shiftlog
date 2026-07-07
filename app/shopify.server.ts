@@ -100,9 +100,10 @@ const shopify = shopifyApp({
     }
   },
 },
-  future: {
-    v3_webhookAdminContext: true,
-  },
+future: {
+  v3_webhookAdminContext: true,
+  unstable_newEmbeddedAuthStrategy: true,
+},
   ...(process.env.SHOP_CUSTOM_DOMAIN
     ? { customShopDomains: [process.env.SHOP_CUSTOM_DOMAIN] }
     : {}),
