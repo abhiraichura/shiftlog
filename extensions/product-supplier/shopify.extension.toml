@@ -1,9 +1,10 @@
-api_version = "2024-04"
+api_version = "2025-07"
 
 [[extensions]]
 type = "ui_extension"
 name = "ShiftLog — Supplier Link"
 handle = "shiftlog-product-supplier"
+uid = "d57b2589-c0a8-0956-9ce2-fab1200619ddcea246ea"
 
 [[extensions.targeting]]
 module = "./src/ProductSupplier.tsx"

@@ -1,9 +1,10 @@
-api_version = "2024-04"
+api_version = "2025-07"
 
 [[extensions]]
 type = "ui_extension"
 name = "ShiftLog — Order Notes"
 handle = "shiftlog-order-annotations"
+uid = "04fe8287-6bac-b872-03c1-e8ac63641521e9ab70bc"
 
 [[extensions.targeting]]
 module = "./src/OrderNotes.tsx"

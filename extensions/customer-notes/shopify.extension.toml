@@ -1,9 +1,10 @@
-api_version = "2024-04"
+api_version = "2025-07"
 
 [[extensions]]
 type = "ui_extension"
 name = "ShiftLog — Customer Notes"
 handle = "shiftlog-customer-notes"
+uid = "0fa10c02-19d1-707d-af65-48bdd0b8bc7eabd3200c"
 
 [[extensions.targeting]]
 module = "./src/CustomerNotes.tsx"
