@@ -1,13 +1,8 @@
 import prisma from "~/db.server";
 import type { Store, StaffMember } from "@prisma/client";
-import { isTrialExpired } from "~/utils/planCheck.server";
 
 export type StoreWithStaff = Store & { staffMembers: StaffMember[] };
 
-/**
- * Resolves the Store and current StaffMember from a Shopify session.
- * Throws a redirect to /app/settings/billing if trial is expired.
- */
 export async function getStoreAndStaff(
   shop: string,
   sessionEmail?: string | null | undefined
@@ -21,18 +16,24 @@ export async function getStoreAndStaff(
   }
 
   let staffMember: StaffMember | null = null;
+
   if (sessionEmail) {
+    // Try to find by session email first
     staffMember = await prisma.staffMember.findFirst({
       where: { storeId: store.id, email: sessionEmail, isActive: true },
+    });
+  }
+
+  if (!staffMember) {
+    // Fall back to owner - offline sessions don't carry email
+    staffMember = await prisma.staffMember.findFirst({
+      where: { storeId: store.id, role: "OWNER", isActive: true },
     });
   }
 
   return { store, staffMember };
 }
 
-/**
- * Returns the StaffMember for the current session, or throws if not found.
- */
 export async function requireStaffMember(
   storeId: string,
   email: string
@@ -46,9 +47,6 @@ export async function requireStaffMember(
   return member;
 }
 
-/**
- * Formats a date for display in the UI.
- */
 export function formatDate(date: Date | string): string {
   return new Date(date).toLocaleDateString("en-US", {
     year: "numeric",
@@ -68,9 +66,7 @@ export function formatDateTime(date: Date | string): string {
 }
 
 export function timeAgo(date: Date | string): string {
-  const seconds = Math.floor(
-    (Date.now() - new Date(date).getTime()) / 1000
-  );
+  const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
   if (seconds < 60) return "just now";
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
