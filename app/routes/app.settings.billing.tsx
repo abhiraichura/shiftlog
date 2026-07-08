@@ -39,10 +39,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { store } = await getStoreAndStaff(session.shop);
   const trialDaysRemaining = getTrialDaysRemaining(store);
 
-  const { hasActivePayment } = await billing.check({
-    plans: [SOLO_MONTHLY, SOLO_ANNUAL, TEAM_MONTHLY, TEAM_ANNUAL, AGENCY_MONTHLY, AGENCY_ANNUAL],
-    isTest: process.env.NODE_ENV !== "production",
-  });
+  let hasActivePayment = false;
+  try {
+    const result = await billing.check({
+      plans: [SOLO_MONTHLY, SOLO_ANNUAL, TEAM_MONTHLY, TEAM_ANNUAL, AGENCY_MONTHLY, AGENCY_ANNUAL],
+      isTest: true,
+    });
+    hasActivePayment = result.hasActivePayment;
+  } catch (err) {
+    console.error("[billing] check failed (app not yet approved for billing):", err);
+  }
 
   return json({
     planTier: store.planTier,
@@ -62,13 +68,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return json({ error: "Invalid plan" }, { status: 400 });
   }
 
-  const paymentResponse = await billing.request({
-    plan,
-    isTest: process.env.NODE_ENV !== "production",
-    returnUrl: `${process.env.SHOPIFY_APP_URL}/app/settings/billing?success=1`,
-  });
-
-  return redirect(paymentResponse.confirmationUrl);
+  try {
+    const paymentResponse = await billing.request({
+      plan,
+      isTest: true,
+      returnUrl: `${process.env.SHOPIFY_APP_URL}/app/settings/billing?success=1`,
+    });
+    return redirect(paymentResponse.confirmationUrl);
+  } catch (err) {
+    console.error("[billing] request failed:", err);
+    return json({ error: "Billing is not available until the app is approved on the Shopify App Store." }, { status: 400 });
+  }
 };
 
 export default function BillingPage() {
@@ -123,8 +133,7 @@ export default function BillingPage() {
               onClick={() => setBillingPeriod("annual")}
               variant={billingPeriod === "annual" ? "primary" : "secondary"}
             >
-              Annual{" "}
-              <Badge tone="success">Save ~17%</Badge>
+              Annual <Badge tone="success">Save ~17%</Badge>
             </Button>
           </InlineStack>
         </Layout.Section>
