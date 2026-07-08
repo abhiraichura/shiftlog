@@ -5,7 +5,7 @@ import prisma from "~/db.server";
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-Shopify-Shop-Domain",
+  "Access-Control-Allow-Headers": "Content-Type, X-Shopify-Shop-Domain, Authorization, authorization",
 };
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
