@@ -1,30 +1,28 @@
 import { type ActionFunctionArgs, type LoaderFunctionArgs, json } from "@remix-run/node";
-import { getStoreAndStaff } from "~/utils/store.server";
 import { authenticate } from "~/shopify.server";
 import prisma from "~/db.server";
+import { getStoreAndStaff } from "~/utils/store.server";
 
-/**
- * Used by the order-annotations UI Extension to:
- * GET  /api/order-annotations?orderId=123&orderNumber=#1001
- * POST /api/order-annotations  { orderId, orderNumber, note, needsOwner }
- * PUT  /api/order-annotations  { annotationId, resolvedAt }
- */
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS });
+  }
+
   const { session } = await authenticate.admin(request);
-  const { store, staffMember } = await getStoreAndStaff(
-    session.shop,
-    session.onlineAccessInfo?.associated_user?.email ?? session.email
-  );
+  const { store, staffMember } = await getStoreAndStaff(session.shop);
 
   const url = new URL(request.url);
   const orderId = url.searchParams.get("orderId");
-  if (!orderId) return json({ error: "orderId required" }, { status: 400 });
+  if (!orderId) return json({ error: "orderId required" }, { status: 400, headers: CORS });
 
   const annotations = await prisma.orderAnnotation.findMany({
-    where: {
-      storeId: store.id,
-      shopifyOrderId: orderId,
-    },
+    where: { storeId: store.id, shopifyOrderId: orderId },
     orderBy: { createdAt: "desc" },
     include: { staffMember: { select: { name: true, role: true } } },
   });
@@ -39,19 +37,19 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       staffName: a.staffMember.name,
       staffRole: a.staffMember.role,
     })),
-    canResolve:
-      staffMember?.role === "OWNER" || staffMember?.role === "MANAGER",
-  });
+    canResolve: staffMember?.role === "OWNER" || staffMember?.role === "MANAGER",
+  }, { headers: CORS });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-  const { store, staffMember } = await getStoreAndStaff(
-    session.shop,
-    session.onlineAccessInfo?.associated_user?.email ?? session.email
-  );
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS });
+  }
 
-  if (!staffMember) return json({ error: "Unauthorized" }, { status: 403 });
+  const { session } = await authenticate.admin(request);
+  const { store, staffMember } = await getStoreAndStaff(session.shop);
+
+  if (!staffMember) return json({ error: "Unauthorized" }, { status: 403, headers: CORS });
 
   const method = request.method.toUpperCase();
   const body = await request.json().catch(() => ({}));
@@ -59,7 +57,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (method === "POST") {
     const { orderId, orderNumber, note, needsOwner } = body;
     if (!orderId || !note) {
-      return json({ error: "orderId and note required" }, { status: 400 });
+      return json({ error: "orderId and note required" }, { status: 400, headers: CORS });
     }
 
     const annotation = await prisma.orderAnnotation.create({
@@ -87,27 +85,15 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       });
     }
 
-    await prisma.auditLog.create({
-      data: {
-        storeId: store.id,
-        staffMemberId: staffMember.id,
-        actionType: "NOTE_ADDED",
-        resourceType: "order",
-        resourceId: String(orderId),
-        resourceLabel: `Order ${orderNumber}`,
-        metadata: { annotationId: annotation.id },
-      },
-    });
-
-    return json({ annotation: { id: annotation.id } });
+    return json({ annotation: { id: annotation.id } }, { headers: CORS });
   }
 
   if (method === "PUT") {
     const { annotationId } = body;
-    if (!annotationId) return json({ error: "annotationId required" }, { status: 400 });
+    if (!annotationId) return json({ error: "annotationId required" }, { status: 400, headers: CORS });
 
     if (staffMember.role !== "OWNER" && staffMember.role !== "MANAGER") {
-      return json({ error: "Only managers can resolve annotations" }, { status: 403 });
+      return json({ error: "Only managers can resolve" }, { status: 403, headers: CORS });
     }
 
     await prisma.orderAnnotation.update({
@@ -115,8 +101,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       data: { resolvedAt: new Date() },
     });
 
-    return json({ ok: true });
+    return json({ ok: true }, { headers: CORS });
   }
 
-  return json({ error: "Method not allowed" }, { status: 405 });
+  return json({ error: "Method not allowed" }, { status: 405, headers: CORS });
 };

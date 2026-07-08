@@ -1,23 +1,25 @@
 import { type ActionFunctionArgs, type LoaderFunctionArgs, json } from "@remix-run/node";
-import { getStoreAndStaff } from "~/utils/store.server";
 import { authenticate } from "~/shopify.server";
 import prisma from "~/db.server";
+import { getStoreAndStaff } from "~/utils/store.server";
 
-/**
- * Used by the customer-notes UI Extension to:
- * GET  /api/customer-notes?customerId=123
- * POST /api/customer-notes  { customerId, customerName, customerEmail, note, isWarning }
- */
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS });
+  }
+
   const { session } = await authenticate.admin(request);
-  const { store, staffMember } = await getStoreAndStaff(
-    session.shop,
-    session.onlineAccessInfo?.associated_user?.email ?? session.email
-  );
+  const { store } = await getStoreAndStaff(session.shop);
 
   const url = new URL(request.url);
   const customerId = url.searchParams.get("customerId");
-  if (!customerId) return json({ error: "customerId required" }, { status: 400 });
+  if (!customerId) return json({ error: "customerId required" }, { status: 400, headers: CORS });
 
   const notes = await prisma.customerNote.findMany({
     where: { storeId: store.id, shopifyCustomerId: customerId },
@@ -36,23 +38,24 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       staffName: n.staffMember.name,
     })),
     hasWarning,
-  });
+  }, { headers: CORS });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
-  const { store, staffMember } = await getStoreAndStaff(
-    session.shop,
-    session.onlineAccessInfo?.associated_user?.email ?? session.email
-  );
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS });
+  }
 
-  if (!staffMember) return json({ error: "Unauthorized" }, { status: 403 });
+  const { session } = await authenticate.admin(request);
+  const { store, staffMember } = await getStoreAndStaff(session.shop);
+
+  if (!staffMember) return json({ error: "Unauthorized" }, { status: 403, headers: CORS });
 
   const body = await request.json().catch(() => ({}));
   const { customerId, customerName, customerEmail, note, isWarning } = body;
 
   if (!customerId || !customerName || !note) {
-    return json({ error: "customerId, customerName, and note are required" }, { status: 400 });
+    return json({ error: "customerId, customerName, and note required" }, { status: 400, headers: CORS });
   }
 
   await prisma.customerNote.create({
@@ -67,5 +70,5 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     },
   });
 
-  return json({ ok: true });
+  return json({ ok: true }, { headers: CORS });
 };
