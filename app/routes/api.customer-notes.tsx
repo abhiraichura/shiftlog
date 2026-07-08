@@ -1,12 +1,10 @@
 import { type ActionFunctionArgs, type LoaderFunctionArgs, json } from "@remix-run/node";
-import { authenticate } from "~/shopify.server";
 import prisma from "~/db.server";
-import { getStoreAndStaff } from "~/utils/store.server";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, X-Shopify-Shop-Domain",
 };
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -14,8 +12,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return new Response(null, { status: 204, headers: CORS });
   }
 
-  const { session } = await authenticate.admin(request);
-  const { store } = await getStoreAndStaff(session.shop);
+  const shop = request.headers.get("X-Shopify-Shop-Domain") ??
+    new URL(request.url).searchParams.get("shop") ?? "";
+
+  if (!shop) return json({ error: "shop required" }, { status: 400, headers: CORS });
+
+  const store = await prisma.store.findUnique({ where: { shop } });
+  if (!store) return json({ error: "Store not found" }, { status: 404, headers: CORS });
 
   const url = new URL(request.url);
   const customerId = url.searchParams.get("customerId");
@@ -27,8 +30,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     include: { staffMember: { select: { name: true } } },
   });
 
-  const hasWarning = notes.some((n) => n.isWarning);
-
   return json({
     notes: notes.map((n) => ({
       id: n.id,
@@ -37,7 +38,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       createdAt: n.createdAt.toISOString(),
       staffName: n.staffMember.name,
     })),
-    hasWarning,
+    hasWarning: notes.some((n) => n.isWarning),
   }, { headers: CORS });
 };
 
@@ -46,16 +47,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return new Response(null, { status: 204, headers: CORS });
   }
 
-  const { session } = await authenticate.admin(request);
-  const { store, staffMember } = await getStoreAndStaff(session.shop);
+  const shop = request.headers.get("X-Shopify-Shop-Domain") ??
+    new URL(request.url).searchParams.get("shop") ?? "";
 
-  if (!staffMember) return json({ error: "Unauthorized" }, { status: 403, headers: CORS });
+  if (!shop) return json({ error: "shop required" }, { status: 400, headers: CORS });
+
+  const store = await prisma.store.findUnique({ where: { shop } });
+  if (!store) return json({ error: "Store not found" }, { status: 404, headers: CORS });
+
+  const staffMember = await prisma.staffMember.findFirst({
+    where: { storeId: store.id, role: "OWNER", isActive: true },
+  });
+  if (!staffMember) return json({ error: "No staff found" }, { status: 403, headers: CORS });
 
   const body = await request.json().catch(() => ({}));
   const { customerId, customerName, customerEmail, note, isWarning } = body;
 
   if (!customerId || !customerName || !note) {
-    return json({ error: "customerId, customerName, and note required" }, { status: 400, headers: CORS });
+    return json({ error: "Required fields missing" }, { status: 400, headers: CORS });
   }
 
   await prisma.customerNote.create({

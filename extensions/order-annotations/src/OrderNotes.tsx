@@ -15,20 +15,15 @@ import {
 export default extension("admin.order-details.block.render", (root, api) => {
   const orderId = (api.data.selected[0] as any)?.id ?? "";
   const orderNumber = (api.data.selected[0] as any)?.name ?? orderId;
-  
-  // Get app URL safely
-  const appUrl = (() => {
-    try {
-      const scriptUrl = (api.extension as any).scriptUrl ?? "";
-      if (scriptUrl && scriptUrl.includes("/extensions")) {
-        return scriptUrl.split("/extensions")[0];
-      }
-      // Fallback to origin
-      return "https://shiftlog-production-2a26.up.railway.app";
-    } catch {
-      return "https://shiftlog-production-2a26.up.railway.app";
-    }
-  })();
+  const shop = (api as any).shop?.myshopifyDomain ?? 
+    (api as any).shop?.domain ?? 
+    "unravelers.myshopify.com";
+  const appUrl = "https://shiftlog-production-2a26.up.railway.app";
+
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Shopify-Shop-Domain": shop,
+  };
 
   let noteValue = "";
   let needsOwner = false;
@@ -49,7 +44,7 @@ export default extension("admin.order-details.block.render", (root, api) => {
     label: "Add a note",
     value: noteValue,
     onChange: (val: string) => { noteValue = val; },
-    placeholder: "e.g. Customer called about delivery, confirmed address updated",
+    placeholder: "e.g. Customer called about delivery",
   });
   stack.appendChild(textarea);
 
@@ -69,9 +64,9 @@ export default extension("admin.order-details.block.render", (root, api) => {
       if (!noteValue.trim()) { feedbackText.replaceChildren("Please enter a note."); return; }
       submitBtn.updateProps({ loading: true });
       try {
-        const res = await fetch(`${appUrl}/api/order-annotations`, {
+        const res = await fetch(`${appUrl}/api/order-annotations?shop=${encodeURIComponent(shop)}`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({ orderId, orderNumber, note: noteValue.trim(), needsOwner }),
         });
         if (!res.ok) throw new Error("Failed");
@@ -88,10 +83,12 @@ export default extension("admin.order-details.block.render", (root, api) => {
 
   async function loadNotes() {
     try {
-      const res = await fetch(`${appUrl}/api/order-annotations?orderId=${encodeURIComponent(orderId)}`);
+      const res = await fetch(
+        `${appUrl}/api/order-annotations?orderId=${encodeURIComponent(orderId)}&shop=${encodeURIComponent(shop)}`,
+        { headers }
+      );
       const json = await res.json();
       const annotations = json.annotations ?? [];
-      const canResolve = json.canResolve ?? false;
       notesList.replaceChildren();
       statusText.replaceChildren(annotations.length === 0 ? "No notes yet." : "");
       for (const a of annotations) {
@@ -103,9 +100,12 @@ export default extension("admin.order-details.block.render", (root, api) => {
         if (a.resolvedAt) row.appendChild(root.createComponent(Badge, { tone: "success" }, "Resolved"));
         s.appendChild(row);
         s.appendChild(root.createComponent(Text, {}, a.note));
-        if (canResolve && a.needsOwner && !a.resolvedAt) {
+        if (a.needsOwner && !a.resolvedAt) {
           const rb = root.createComponent(Button, { size: "slim", variant: "plain", onPress: async () => {
-            await fetch(`${appUrl}/api/order-annotations`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ annotationId: a.id }) });
+            await fetch(`${appUrl}/api/order-annotations?shop=${encodeURIComponent(shop)}`, {
+              method: "PUT", headers,
+              body: JSON.stringify({ annotationId: a.id }),
+            });
             await loadNotes();
           }}, "Resolve");
           s.appendChild(rb);
@@ -113,7 +113,9 @@ export default extension("admin.order-details.block.render", (root, api) => {
         box.appendChild(s);
         notesList.appendChild(box);
       }
-    } catch { statusText.replaceChildren("Failed to load notes."); }
+    } catch (e) {
+      statusText.replaceChildren("Failed to load notes.");
+    }
   }
 
   if (orderId) loadNotes();

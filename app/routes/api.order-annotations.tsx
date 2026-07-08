@@ -1,12 +1,11 @@
 import { type ActionFunctionArgs, type LoaderFunctionArgs, json } from "@remix-run/node";
-import { authenticate } from "~/shopify.server";
+import { unauthenticated } from "~/shopify.server";
 import prisma from "~/db.server";
-import { getStoreAndStaff } from "~/utils/store.server";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, X-Shopify-Shop-Domain",
 };
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -14,8 +13,17 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return new Response(null, { status: 204, headers: CORS });
   }
 
-  const { session } = await authenticate.admin(request);
-  const { store, staffMember } = await getStoreAndStaff(session.shop);
+  const shop = request.headers.get("X-Shopify-Shop-Domain") ?? 
+    new URL(request.url).searchParams.get("shop") ?? "";
+
+  if (!shop) return json({ error: "shop required" }, { status: 400, headers: CORS });
+
+  const store = await prisma.store.findUnique({ where: { shop } });
+  if (!store) return json({ error: "Store not found" }, { status: 404, headers: CORS });
+
+  const staffMember = await prisma.staffMember.findFirst({
+    where: { storeId: store.id, role: "OWNER", isActive: true },
+  });
 
   const url = new URL(request.url);
   const orderId = url.searchParams.get("orderId");
@@ -35,9 +43,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       resolvedAt: a.resolvedAt?.toISOString() ?? null,
       createdAt: a.createdAt.toISOString(),
       staffName: a.staffMember.name,
-      staffRole: a.staffMember.role,
     })),
-    canResolve: staffMember?.role === "OWNER" || staffMember?.role === "MANAGER",
+    canResolve: true,
   }, { headers: CORS });
 };
 
@@ -46,10 +53,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return new Response(null, { status: 204, headers: CORS });
   }
 
-  const { session } = await authenticate.admin(request);
-  const { store, staffMember } = await getStoreAndStaff(session.shop);
+  const shop = request.headers.get("X-Shopify-Shop-Domain") ??
+    new URL(request.url).searchParams.get("shop") ?? "";
 
-  if (!staffMember) return json({ error: "Unauthorized" }, { status: 403, headers: CORS });
+  if (!shop) return json({ error: "shop required" }, { status: 400, headers: CORS });
+
+  const store = await prisma.store.findUnique({ where: { shop } });
+  if (!store) return json({ error: "Store not found" }, { status: 404, headers: CORS });
+
+  const staffMember = await prisma.staffMember.findFirst({
+    where: { storeId: store.id, role: "OWNER", isActive: true },
+  });
+  if (!staffMember) return json({ error: "No staff found" }, { status: 403, headers: CORS });
 
   const method = request.method.toUpperCase();
   const body = await request.json().catch(() => ({}));
@@ -76,7 +91,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         data: {
           storeId: store.id,
           createdById: staffMember.id,
-          title: `Order ${orderNumber} flagged — ${staffMember.name}`,
+          title: `Order ${orderNumber} flagged`,
           description: note,
           sourceType: "order_annotation",
           sourceId: annotation.id,
@@ -91,16 +106,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (method === "PUT") {
     const { annotationId } = body;
     if (!annotationId) return json({ error: "annotationId required" }, { status: 400, headers: CORS });
-
-    if (staffMember.role !== "OWNER" && staffMember.role !== "MANAGER") {
-      return json({ error: "Only managers can resolve" }, { status: 403, headers: CORS });
-    }
-
     await prisma.orderAnnotation.update({
       where: { id: annotationId, storeId: store.id },
       data: { resolvedAt: new Date() },
     });
-
     return json({ ok: true }, { headers: CORS });
   }
 

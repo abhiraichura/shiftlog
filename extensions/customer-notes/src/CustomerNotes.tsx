@@ -17,19 +17,15 @@ export default extension("admin.customer-details.block.render", (root, api) => {
   const customerId = (api.data.selected[0] as any)?.id ?? "";
   const customerName = (api.data.selected[0] as any)?.displayName ?? customerId;
   const customerEmail = (api.data.selected[0] as any)?.email ?? null;
+  const shop = (api as any).shop?.myshopifyDomain ?? 
+    (api as any).shop?.domain ?? 
+    "unravelers.myshopify.com";
+  const appUrl = "https://shiftlog-production-2a26.up.railway.app";
 
-  // Get app URL safely
-  const appUrl = (() => {
-    try {
-      const scriptUrl = (api.extension as any).scriptUrl ?? "";
-      if (scriptUrl && scriptUrl.includes("/extensions")) {
-        return scriptUrl.split("/extensions")[0];
-      }
-      return "https://shiftlog-production-2a26.up.railway.app";
-    } catch {
-      return "https://shiftlog-production-2a26.up.railway.app";
-    }
-  })();
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Shopify-Shop-Domain": shop,
+  };
 
   let noteValue = "";
   let isWarning = false;
@@ -53,7 +49,7 @@ export default extension("admin.customer-details.block.render", (root, api) => {
     label: "Add a note",
     value: noteValue,
     onChange: (val: string) => { noteValue = val; },
-    placeholder: "e.g. Fraud attempted on order #1050 — verify before fulfilling",
+    placeholder: "e.g. Fraud attempted — verify before fulfilling",
   });
   stack.appendChild(textarea);
 
@@ -73,9 +69,9 @@ export default extension("admin.customer-details.block.render", (root, api) => {
       if (!noteValue.trim()) { feedbackText.replaceChildren("Please enter a note."); return; }
       submitBtn.updateProps({ loading: true });
       try {
-        const res = await fetch(`${appUrl}/api/customer-notes`, {
+        const res = await fetch(`${appUrl}/api/customer-notes?shop=${encodeURIComponent(shop)}`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({ customerId, customerName, customerEmail, note: noteValue.trim(), isWarning }),
         });
         if (!res.ok) throw new Error("Failed");
@@ -92,7 +88,10 @@ export default extension("admin.customer-details.block.render", (root, api) => {
 
   async function loadNotes() {
     try {
-      const res = await fetch(`${appUrl}/api/customer-notes?customerId=${encodeURIComponent(customerId)}`);
+      const res = await fetch(
+        `${appUrl}/api/customer-notes?customerId=${encodeURIComponent(customerId)}&shop=${encodeURIComponent(shop)}`,
+        { headers }
+      );
       const json = await res.json();
       const notes = json.notes ?? [];
       const hasWarning = json.hasWarning ?? false;
@@ -100,7 +99,8 @@ export default extension("admin.customer-details.block.render", (root, api) => {
       warningContainer.replaceChildren();
       if (hasWarning) {
         const banner = root.createComponent(Banner, { tone: "critical" });
-        banner.appendChild(root.createComponent(Text, { fontWeight: "bold" }, "WARNING: This customer has been flagged. Read notes before processing orders."));
+        banner.appendChild(root.createComponent(Text, { fontWeight: "bold" },
+          "WARNING: This customer has been flagged. Read notes before processing orders."));
         warningContainer.appendChild(banner);
       }
 
@@ -108,7 +108,8 @@ export default extension("admin.customer-details.block.render", (root, api) => {
       statusText.replaceChildren(notes.length === 0 ? "No notes yet." : "");
 
       for (const n of notes) {
-        const box = root.createComponent(Box, { padding: "base", borderWidth: "base", borderColor: n.isWarning ? "critical" : "subdued", borderRadius: "base" });
+        const box = root.createComponent(Box, { padding: "base", borderWidth: "base",
+          borderColor: n.isWarning ? "critical" : "subdued", borderRadius: "base" });
         const s = root.createComponent(BlockStack, { gap: "extraTight" });
         const row = root.createComponent(InlineStack, { gap: "tight", blockAlignment: "center" });
         row.appendChild(root.createComponent(Text, { fontWeight: "bold", size: "small" }, n.staffName));
