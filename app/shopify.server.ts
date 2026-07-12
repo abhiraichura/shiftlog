@@ -96,8 +96,6 @@ const shopify = shopifyApp({
             isActive: true,
           },
         });
-
-        console.log(`[afterAuth] Store and owner created for ${session.shop}`);
       } else if (existingStore.staffMembers.length === 0) {
         // Store exists but owner staff member is missing - fix it
         const response = await fetch(
@@ -116,8 +114,6 @@ const shopify = shopifyApp({
             isActive: true,
           },
         });
-
-        console.log(`[afterAuth] Missing owner staff member created for ${session.shop}`);
       }
     } catch (err) {
       console.error("[afterAuth] Store setup failed:", err);

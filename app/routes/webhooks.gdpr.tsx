@@ -13,7 +13,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     case "CUSTOMERS_DATA_REQUEST": {
       // A customer requested their data. You must email it to the shop owner within 30 days.
       // Log the request.
-      console.log(`[gdpr] Customer data request for shop: ${shop}`, payload);
       // In production: create a task, email the owner with the data, etc.
       break;
     }
@@ -33,7 +32,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           },
         });
       }
-      console.log(`[gdpr] Customer redacted: ${customerId} for ${shop}`);
       break;
     }
 
@@ -44,12 +42,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         // Cascade deletes handle related records via Prisma schema
         await prisma.store.delete({ where: { id: store.id } });
       }
-      console.log(`[gdpr] Shop redacted: ${shop}`);
       break;
     }
 
     default:
-      console.log(`[gdpr] Unhandled topic: ${topic}`);
   }
 
   return new Response(null, { status: 200 });

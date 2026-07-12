@@ -78,8 +78,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         });
       }
     }
-
-    console.log(`[billing] ${shop} upgraded to ${newTier}`);
   } else if (status === "CANCELLED" || status === "DECLINED" || status === "EXPIRED") {
     await prisma.store.update({
       where: { id: store.id },
@@ -90,7 +88,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         trialEndsAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 day grace
       },
     });
-    console.log(`[billing] ${shop} subscription ${status} — reverted to TRIAL with 30-day grace`);
   }
 
   return new Response(null, { status: 200 });

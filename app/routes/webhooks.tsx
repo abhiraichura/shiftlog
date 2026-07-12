@@ -124,7 +124,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     default: {
-      console.log(`[webhook] Unhandled topic: ${topic}`);
     }
   }
 
