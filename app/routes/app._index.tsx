@@ -1,178 +1,93 @@
 import { type LoaderFunctionArgs, json } from "@remix-run/node";
-import { getStoreAndStaff } from "~/utils/store.server";
-import { timeAgo } from "~/utils/helpers";
-import { useLoaderData, Link } from "@remix-run/react";
+import { useLoaderData } from "@remix-run/react";
 import {
-  Page,
-  Layout,
-  Card,
-  Text,
-  BlockStack,
-  InlineStack,
-  Badge,
-  Button,
-  Banner,
-  Divider,
-  Box,
-  InlineGrid,
+  Page, Layout, Card, Text, BlockStack, InlineStack,
+  Badge, Button, Divider, Box, InlineGrid, Banner,
 } from "@shopify/polaris";
 import { authenticate } from "~/shopify.server";
 import prisma from "~/db.server";
-import { getTrialDaysRemaining, isTrialExpired } from "~/utils/planCheck.server";
+import { getStoreAndStaff } from "~/utils/store.server";
+import { getTrialDaysRemaining } from "~/utils/planCheck.server";
+import { timeAgo } from "~/utils/helpers";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  const { store, staffMember } = await getStoreAndStaff(
-    session.shop,
-    session.onlineAccessInfo?.associated_user?.email ?? session.email
-  );
+  const { store, staffMember } = await getStoreAndStaff(session.shop);
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const [
-    pendingCount,
-    todayShiftCount,
-    todayRefunds,
-    customerWarnings,
-    recentAudit,
-    recentShifts,
-  ] = await Promise.all([
-    prisma.pendingItem.count({ where: { storeId: store.id, resolvedAt: null } }),
-    prisma.shiftNote.count({ where: { storeId: store.id, createdAt: { gte: today } } }),
-    prisma.auditLog.findMany({
-      where: { storeId: store.id, actionType: "REFUND_ISSUED", detectedAt: { gte: today } },
-    }),
-    prisma.customerNote.count({ where: { storeId: store.id, isWarning: true } }),
-    prisma.auditLog.findMany({
-      where: { storeId: store.id },
-      orderBy: { detectedAt: "desc" },
-      take: 8,
-      include: { staffMember: true },
-    }),
-    prisma.shiftNote.findMany({
-      where: { storeId: store.id },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      include: { staffMember: true },
-    }),
-  ]);
+  const [pendingCount, todayShiftCount, todayRefunds, customerWarnings, recentAudit, recentShifts, totalShiftNotes] =
+    await Promise.all([
+      prisma.pendingItem.count({ where: { storeId: store.id, resolvedAt: null } }),
+      prisma.shiftNote.count({ where: { storeId: store.id, createdAt: { gte: today } } }),
+      prisma.auditLog.findMany({ where: { storeId: store.id, actionType: "REFUND_ISSUED", detectedAt: { gte: today } } }),
+      prisma.customerNote.count({ where: { storeId: store.id, isWarning: true } }),
+      prisma.auditLog.findMany({ where: { storeId: store.id }, orderBy: { detectedAt: "desc" }, take: 6, include: { staffMember: true } }),
+      prisma.shiftNote.findMany({ where: { storeId: store.id }, orderBy: { createdAt: "desc" }, take: 4, include: { staffMember: true } }),
+      prisma.shiftNote.count({ where: { storeId: store.id } }),
+    ]);
 
-  const totalRefundedToday = todayRefunds.reduce(
-    (sum, r) => sum + ((r.metadata as any)?.amount ?? 0),
-    0
-  );
-
+  const totalRefundedToday = todayRefunds.reduce((sum, r) => sum + ((r.metadata as any)?.amount ?? 0), 0);
   const trialDaysRemaining = getTrialDaysRemaining(store);
-
-  // Review prompt: 14+ days old AND 5+ shift notes
-  const daysSinceInstall = (Date.now() - new Date(store.createdAt).getTime()) / (1000 * 60 * 60 * 24);
-  const showReviewPrompt = daysSinceInstall >= 14 && (await prisma.shiftNote.count({ where: { storeId: store.id } })) >= 5;
+  const daysSince = (Date.now() - new Date(store.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+  const showReviewPrompt = store.onboardingDone && daysSince >= 14 && totalShiftNotes >= 5;
 
   return json({
-    store: {
-      planTier: store.planTier,
-      ownerName: store.ownerName,
-      trialDaysRemaining,
-      createdAt: store.createdAt.toISOString(),
-    },
-    showReviewPrompt,
-    staffMember,
-    pendingCount,
-    todayShiftCount,
-    todayRefundCount: todayRefunds.length,
-    totalRefundedToday,
-    customerWarnings,
+    store: { planTier: store.planTier, ownerName: store.ownerName, trialDaysRemaining },
+    staffMember: staffMember ? { name: staffMember.name, role: staffMember.role } : null,
+    pendingCount, todayShiftCount,
+    todayRefundCount: todayRefunds.length, totalRefundedToday,
+    customerWarnings, showReviewPrompt,
     recentAudit: recentAudit.map((a) => ({
-      id: a.id,
-      actionType: a.actionType,
-      resourceLabel: a.resourceLabel,
-      staffName: a.staffMember?.name ?? "System",
-      detectedAt: a.detectedAt.toISOString(),
+      id: a.id, actionType: a.actionType, resourceLabel: a.resourceLabel,
+      staffName: a.staffMember?.name ?? "System", detectedAt: a.detectedAt.toISOString(),
     })),
     recentShifts: recentShifts.map((s) => ({
-      id: s.id,
-      summary: s.summary,
-      staffName: s.staffMember.name,
-      needsOwner: s.needsOwner,
+      id: s.id, summary: s.summary, staffName: s.staffMember.name,
+      needsOwner: s.needsOwner, resolvedAt: s.resolvedAt?.toISOString() ?? null,
       createdAt: s.createdAt.toISOString(),
     })),
   });
 };
 
-function actionLabel(type: string) {
-  const labels: Record<string, string> = {
-    REFUND_ISSUED: "Refund issued",
-    ORDER_EDITED: "Order edited",
-    ORDER_CANCELLED: "Order cancelled",
-    PRODUCT_PRICE_CHANGED: "Price changed",
-    PRODUCT_STOCK_CHANGED: "Stock changed",
-    DISCOUNT_APPLIED: "Discount applied",
-    CUSTOMER_TAGGED: "Customer tagged",
-    NOTE_ADDED: "Note added",
-    FULFILLMENT_UPDATED: "Fulfillment updated",
-  };
-  return labels[type] ?? type;
-}
-
-function actionBadgeTone(type: string): "critical" | "warning" | "info" | "success" {
-  if (type === "REFUND_ISSUED" || type === "ORDER_CANCELLED") return "critical";
-  if (type === "PRODUCT_PRICE_CHANGED") return "warning";
-  return "info";
-}
+const ACTION_TONES: Record<string, "critical" | "warning" | "info" | "success"> = {
+  REFUND_ISSUED: "critical", ORDER_CANCELLED: "critical",
+  PRODUCT_PRICE_CHANGED: "warning", DISCOUNT_APPLIED: "warning",
+  ORDER_EDITED: "info", FULFILLMENT_UPDATED: "success",
+  NOTE_ADDED: "info", CUSTOMER_TAGGED: "info", PRODUCT_STOCK_CHANGED: "warning",
+};
+const ACTION_LABELS: Record<string, string> = {
+  REFUND_ISSUED: "Refund", ORDER_CANCELLED: "Cancelled",
+  PRODUCT_PRICE_CHANGED: "Price changed", ORDER_EDITED: "Order edited",
+  FULFILLMENT_UPDATED: "Fulfilled", NOTE_ADDED: "Note added",
+  DISCOUNT_APPLIED: "Discount", CUSTOMER_TAGGED: "Tagged",
+};
 
 export default function Dashboard() {
   const {
-    store,
-    staffMember,
-    pendingCount,
-    todayShiftCount,
-    todayRefundCount,
-    totalRefundedToday,
-    customerWarnings,
-    recentAudit,
-    recentShifts,
-    showReviewPrompt,
+    store, staffMember, pendingCount, todayShiftCount,
+    todayRefundCount, totalRefundedToday, customerWarnings,
+    showReviewPrompt, recentAudit, recentShifts,
   } = useLoaderData<typeof loader>();
 
-  const greeting = () => {
-    const h = new Date().getHours();
-    if (h < 12) return "Good morning";
-    if (h < 17) return "Good afternoon";
-    return "Good evening";
-  };
+  const h = new Date().getHours();
+  const greeting = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+  const name = staffMember?.name?.split(" ")[0] ?? store.ownerName?.split(" ")[0] ?? "there";
+  const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
   return (
-    <Page
-      title={`${greeting()}, ${staffMember?.name ?? store.ownerName ?? "there"}`}
-      subtitle={new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-      primaryAction={
-        <Button url="/app/shifts" variant="primary">
-          Write shift note
-        </Button>
-      }
-    >
+    <Page>
       <Layout>
-        {store.planTier === "TRIAL" && store.trialDaysRemaining <= 3 && store.trialDaysRemaining > 0 && (
+        {store.planTier === "TRIAL" && store.trialDaysRemaining <= 5 && (
           <Layout.Section>
             <Banner
-              title={`Your free trial ends in ${store.trialDaysRemaining} day${store.trialDaysRemaining !== 1 ? "s" : ""}`}
-              tone="critical"
+              tone={store.trialDaysRemaining <= 2 ? "critical" : "warning"}
+              title={`${store.trialDaysRemaining} day${store.trialDaysRemaining !== 1 ? "s" : ""} left in your free trial`}
               action={{ content: "Choose a plan", url: "/app/settings/billing" }}
+              onDismiss={() => {}}
             >
-              <p>Upgrade now to keep your shift notes, annotations, and audit log.</p>
-            </Banner>
-          </Layout.Section>
-        )}
-
-        {store.planTier === "TRIAL" && store.trialDaysRemaining > 3 && store.trialDaysRemaining <= 5 && (
-          <Layout.Section>
-            <Banner
-              title={`${store.trialDaysRemaining} days left in your free trial`}
-              tone="warning"
-              action={{ content: "See plans", url: "/app/settings/billing" }}
-            >
-              <p>Your trial ends soon. Choose a plan to keep access to all your data.</p>
+              <p>Upgrade to keep your data and all features.</p>
             </Banner>
           </Layout.Section>
         )}
@@ -180,100 +95,67 @@ export default function Dashboard() {
         {showReviewPrompt && (
           <Layout.Section>
             <Banner
-              title="Loving ShiftLog? A quick review helps us keep building."
               tone="info"
-              action={{
-                content: "Leave a review — takes 30 seconds",
-                url: "https://apps.shopify.com/shiftlog#modal-show=ReviewListingModal",
-                target: "_blank",
-              }}
+              title="Enjoying ShiftLog? A quick review helps us keep building."
+              action={{ content: "Leave a review ⭐", url: "https://apps.shopify.com/shiftlog-team-operations-log#modal-show=ReviewListingModal", target: "_blank" }}
               onDismiss={() => {}}
-            >
-              <p>Your feedback helps other store owners discover ShiftLog.</p>
-            </Banner>
+            />
           </Layout.Section>
         )}
 
-        {/* Summary Cards */}
+        <Layout.Section>
+          <InlineStack align="space-between" blockAlignment="center">
+            <BlockStack gap="100">
+              <Text as="h1" variant="headingXl">{greeting}, {name} 👋</Text>
+              <Text as="p" tone="subdued">{today}</Text>
+            </BlockStack>
+            <Button url="/app/shifts" variant="primary" size="large">Write shift note</Button>
+          </InlineStack>
+        </Layout.Section>
+
         <Layout.Section>
           <InlineGrid columns={4} gap="400">
-            <Card>
-              <BlockStack gap="200">
-                <Text as="p" variant="bodySm" tone="subdued">Pending items</Text>
-                <Text as="p" variant="headingXl" tone={pendingCount > 0 ? "critical" : undefined}>
-                  {pendingCount}
-                </Text>
-                <Button url="/app/pending" size="slim" variant="plain">
-                  View all
-                </Button>
-              </BlockStack>
-            </Card>
-
-            <Card>
-              <BlockStack gap="200">
-                <Text as="p" variant="bodySm" tone="subdued">Shift notes today</Text>
-                <Text as="p" variant="headingXl">{todayShiftCount}</Text>
-                <Button url="/app/shifts" size="slim" variant="plain">
-                  View shifts
-                </Button>
-              </BlockStack>
-            </Card>
-
-            <Card>
-              <BlockStack gap="200">
-                <Text as="p" variant="bodySm" tone="subdued">Refunds today</Text>
-                <Text as="p" variant="headingXl" tone={todayRefundCount > 0 ? "critical" : undefined}>
-                  {todayRefundCount}
-                </Text>
-                {todayRefundCount > 0 && (
-                  <Text as="p" variant="bodySm" tone="subdued">
-                    ${totalRefundedToday.toFixed(2)} total
-                  </Text>
-                )}
-              </BlockStack>
-            </Card>
-
-            <Card>
-              <BlockStack gap="200">
-                <Text as="p" variant="bodySm" tone="subdued">Customer warnings</Text>
-                <Text as="p" variant="headingXl" tone={customerWarnings > 0 ? "warning" : undefined}>
-                  {customerWarnings}
-                </Text>
-                <Button url="/app/customers" size="slim" variant="plain">
-                  View customers
-                </Button>
-              </BlockStack>
-            </Card>
+            {[
+              { label: "Pending items", value: pendingCount, tone: pendingCount > 0 ? "critical" : undefined, sub: pendingCount > 0 ? "Need attention" : "All clear ✓", url: "/app/pending" },
+              { label: "Shift notes today", value: todayShiftCount, sub: todayShiftCount === 0 ? "None submitted" : "Submitted today", url: "/app/shifts" },
+              { label: "Refunds today", value: todayRefundCount, tone: todayRefundCount > 0 ? "critical" : undefined, sub: todayRefundCount > 0 ? `$${totalRefundedToday.toFixed(2)} total` : "No refunds" },
+              { label: "Customer warnings", value: customerWarnings, tone: customerWarnings > 0 ? "warning" : undefined, sub: customerWarnings > 0 ? "Flagged" : "None", url: "/app/customers" },
+            ].map((stat) => (
+              <Card key={stat.label}>
+                <BlockStack gap="300">
+                  <Text as="p" variant="bodySm" tone="subdued">{stat.label}</Text>
+                  <Text as="p" variant="heading2xl" tone={stat.tone as any}>{stat.value}</Text>
+                  <Text as="p" variant="bodySm" tone="subdued">{stat.sub}</Text>
+                  {stat.url && <Button url={stat.url} variant="plain" size="slim">View →</Button>}
+                </BlockStack>
+              </Card>
+            ))}
           </InlineGrid>
         </Layout.Section>
 
         <Layout.Section>
           <InlineGrid columns={2} gap="400">
-            {/* Recent Activity */}
             <Card>
               <BlockStack gap="400">
                 <InlineStack align="space-between">
                   <Text as="h2" variant="headingMd">Recent activity</Text>
-                  <Button url="/app/audit" size="slim" variant="plain">View audit log</Button>
+                  <Button url="/app/audit" variant="plain" size="slim">Audit log →</Button>
                 </InlineStack>
                 <Divider />
                 {recentAudit.length === 0 ? (
-                  <Text as="p" tone="subdued">No activity logged yet. Activity appears here automatically when staff take actions in your store.</Text>
+                  <Text as="p" tone="subdued">Activity appears automatically when staff process orders, refunds, and more.</Text>
                 ) : (
                   <BlockStack gap="300">
-                    {recentAudit.map((entry) => (
-                      <InlineStack key={entry.id} align="space-between" gap="200">
-                        <BlockStack gap="100">
-                          <InlineStack gap="200">
-                            <Badge tone={actionBadgeTone(entry.actionType)}>
-                              {actionLabel(entry.actionType)}
-                            </Badge>
-                          </InlineStack>
-                          <Text as="p" variant="bodySm">{entry.resourceLabel}</Text>
-                          <Text as="p" variant="bodySm" tone="subdued">
-                            {entry.staffName} · {timeAgo(entry.detectedAt)}
-                          </Text>
-                        </BlockStack>
+                    {recentAudit.map((e) => (
+                      <InlineStack key={e.id} align="space-between" blockAlignment="start">
+                        <InlineStack gap="200">
+                          <Badge tone={ACTION_TONES[e.actionType] ?? "info"}>{ACTION_LABELS[e.actionType] ?? e.actionType}</Badge>
+                          <BlockStack gap="050">
+                            <Text as="p" variant="bodySm">{e.resourceLabel}</Text>
+                            <Text as="p" variant="bodySm" tone="subdued">{e.staffName}</Text>
+                          </BlockStack>
+                        </InlineStack>
+                        <Text as="p" variant="bodySm" tone="subdued">{timeAgo(e.detectedAt)}</Text>
                       </InlineStack>
                     ))}
                   </BlockStack>
@@ -281,37 +163,32 @@ export default function Dashboard() {
               </BlockStack>
             </Card>
 
-            {/* Recent Shift Notes */}
             <Card>
               <BlockStack gap="400">
                 <InlineStack align="space-between">
                   <Text as="h2" variant="headingMd">Recent shift notes</Text>
-                  <Button url="/app/shifts" size="slim" variant="plain">View all</Button>
+                  <Button url="/app/shifts" variant="plain" size="slim">View all →</Button>
                 </InlineStack>
                 <Divider />
                 {recentShifts.length === 0 ? (
                   <BlockStack gap="300">
-                    <Text as="p" tone="subdued">No shift notes yet. Ask your team to submit their first note.</Text>
+                    <Text as="p" tone="subdued">No shift notes yet. Ask your team to submit their first note at the end of each shift.</Text>
                     <Button url="/app/shifts" variant="primary">Write first note</Button>
                   </BlockStack>
                 ) : (
-                  <BlockStack gap="300">
+                  <BlockStack gap="200">
                     {recentShifts.map((note) => (
-                      <Box key={note.id} borderWidth="025" borderColor="border" borderRadius="200" padding="300">
+                      <Box key={note.id} background={note.needsOwner && !note.resolvedAt ? "bg-surface-critical-subdued" : "bg-surface-secondary"} borderRadius="200" padding="300">
                         <BlockStack gap="100">
                           <InlineStack align="space-between">
                             <InlineStack gap="200">
-                              <Text as="span" variant="bodyMd" fontWeight="semibold">{note.staffName}</Text>
-                              {note.needsOwner && (
-                                <Badge tone="critical">Needs attention</Badge>
-                              )}
+                              <Text as="span" fontWeight="semibold" variant="bodySm">{note.staffName}</Text>
+                              {note.needsOwner && !note.resolvedAt && <Badge tone="critical">Needs attention</Badge>}
                             </InlineStack>
                             <Text as="span" variant="bodySm" tone="subdued">{timeAgo(note.createdAt)}</Text>
                           </InlineStack>
                           <Text as="p" variant="bodySm" tone="subdued">
-                            {note.summary.length > 100
-                              ? note.summary.slice(0, 100) + "…"
-                              : note.summary}
+                            {note.summary.length > 90 ? note.summary.slice(0, 90) + "…" : note.summary}
                           </Text>
                         </BlockStack>
                       </Box>
@@ -321,6 +198,23 @@ export default function Dashboard() {
               </BlockStack>
             </Card>
           </InlineGrid>
+        </Layout.Section>
+
+        <Layout.Section>
+          <Card>
+            <BlockStack gap="300">
+              <Text as="h2" variant="headingMd">Quick actions</Text>
+              <Divider />
+              <InlineStack gap="300" wrap>
+                <Button url="/app/shifts">📝 Shift note</Button>
+                <Button url="/app/pending">⚠️ Pending items</Button>
+                <Button url="/app/suppliers">🏭 Suppliers</Button>
+                <Button url="/app/team">👥 Invite staff</Button>
+                <Button url="/app/settings/billing">💳 Billing</Button>
+                <Button url="/app/settings">⚙️ Settings</Button>
+              </InlineStack>
+            </BlockStack>
+          </Card>
         </Layout.Section>
       </Layout>
     </Page>
