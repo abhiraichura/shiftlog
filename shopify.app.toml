@@ -1,6 +1,6 @@
 name = "ShiftLog"
 client_id = "8ba94ef76ded91d1660bc1290d004839"
-application_url = "https://fictional-parakeet-7v77wqg6g4w3p77j.github.dev"
+application_url = "https://fictional-parakeet-7v77wqg6g4w3p77j-3000.app.github.dev"
 embedded = true
 handle = "shiftlog-team-operations-log"
 
@@ -13,8 +13,8 @@ scopes = "read_orders,write_orders,read_products,write_products"
 
 [auth]
 redirect_urls = [
-  "https://fictional-parakeet-7v77wqg6g4w3p77j.github.dev/auth/callback",
-  "https://fictional-parakeet-7v77wqg6g4w3p77j.github.dev/auth/shopify/callback"
+  "https://fictional-parakeet-7v77wqg6g4w3p77j-3000.app.github.dev/auth/callback",
+  "https://fictional-parakeet-7v77wqg6g4w3p77j-3000.app.github.dev/auth/shopify/callback"
 ]
 
 [webhooks]
