@@ -3,37 +3,24 @@ import {
   type ActionFunctionArgs,
   json,
 } from "@remix-run/node";
-import { useLoaderData, Form, useNavigation } from "@remix-run/react";
-import { getStoreAndStaff } from "~/utils/store.server";
-import { timeAgo } from "~/utils/helpers";
+import { useLoaderData, Form, useNavigation, useNavigate } from "@remix-run/react";
 import {
-  Page,
-  Layout,
-  Card,
-  Text,
-  BlockStack,
-  InlineStack,
-  Badge,
-  Button,
-  TextField,
-  EmptyState,
-  Modal,
-  InlineGrid,
-  Box,
-  Divider,
+  Page, Layout, Card, Text, BlockStack, InlineStack,
+  Badge, Button, TextField, EmptyState, Modal, InlineGrid,
+  Divider, Box,
 } from "@shopify/polaris";
 import { useState } from "react";
 import { authenticate } from "~/shopify.server";
 import prisma from "~/db.server";
+import { getStoreAndStaff } from "~/utils/store.server";
+import { timeAgo } from "~/utils/helpers";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const { session } = await authenticate.admin(request);
+  const { store, staffMember } = await getStoreAndStaff(session.shop);
+
   const url = new URL(request.url);
   const openNew = url.searchParams.get("new") === "1";
-  const { session } = await authenticate.admin(request);
-  const { store, staffMember } = await getStoreAndStaff(
-    session.shop,
-    session.onlineAccessInfo?.associated_user?.email ?? session.email
-  );
 
   const suppliers = await prisma.supplier.findMany({
     where: { storeId: store.id, isActive: true },
@@ -42,7 +29,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       supplierNotes: {
         orderBy: { createdAt: "desc" },
         take: 1,
+        include: { staffMember: true },
       },
+      _count: { select: { supplierNotes: true } },
     },
   });
 
@@ -55,22 +44,20 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       phone: s.phone,
       whatsapp: s.whatsapp,
       website: s.website,
+      noteCount: s._count.supplierNotes,
       lastNote: s.supplierNotes[0]?.note ?? null,
       lastNoteDate: s.supplierNotes[0]?.createdAt.toISOString() ?? null,
+      lastNoteStaff: s.supplierNotes[0]?.staffMember.name ?? null,
       hasUrgent: s.supplierNotes[0]?.isUrgent ?? false,
     })),
     staffMember: staffMember ? { id: staffMember.id, role: staffMember.role } : null,
-    storeId: store.id,
     openNew,
   });
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
-  const { store, staffMember } = await getStoreAndStaff(
-    session.shop,
-    session.onlineAccessInfo?.associated_user?.email ?? session.email
-  );
+  const { store, staffMember } = await getStoreAndStaff(session.shop);
   if (!staffMember) return json({ error: "Unauthorized" }, { status: 403 });
 
   const formData = await request.formData();
@@ -79,7 +66,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (intent === "add_supplier") {
     const name = (formData.get("name") as string)?.trim();
     if (!name) return json({ error: "Name required" }, { status: 400 });
-
     await prisma.supplier.create({
       data: {
         storeId: store.id,
@@ -100,6 +86,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 export default function SuppliersPage() {
   const { suppliers, staffMember, openNew } = useLoaderData<typeof loader>();
   const navigation = useNavigation();
+  const navigate = useNavigate();
   const isSubmitting = navigation.state === "submitting";
 
   const [showModal, setShowModal] = useState(openNew);
@@ -110,11 +97,17 @@ export default function SuppliersPage() {
   const [whatsapp, setWhatsapp] = useState("");
   const [website, setWebsite] = useState("");
 
+  const resetForm = () => {
+    setName(""); setContactName(""); setEmail("");
+    setPhone(""); setWhatsapp(""); setWebsite("");
+    setShowModal(false);
+  };
+
   return (
     <Page
       title="Suppliers"
       subtitle="Your supplier directory with threaded notes."
-      primaryAction={<Button onClick={() => setShowModal(true)} variant="primary">Add supplier</Button>}
+      primaryAction={{ content: "Add supplier", onAction: () => setShowModal(true), variant: "primary" }}
     >
       <Layout>
         <Layout.Section>
@@ -125,7 +118,7 @@ export default function SuppliersPage() {
                 image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
                 action={{ content: "Add first supplier", onAction: () => setShowModal(true) }}
               >
-                <p>Add your suppliers and keep threaded notes on each — stock updates, delays, contacts.</p>
+                <p>Add your suppliers and keep threaded notes — stock updates, delays, contacts.</p>
               </EmptyState>
             </Card>
           ) : (
@@ -144,38 +137,35 @@ export default function SuppliersPage() {
 
                     <BlockStack gap="100">
                       {supplier.email && (
-                        <Text as="p" variant="bodySm">
-                          📧 <a href={`mailto:${supplier.email}`}>{supplier.email}</a>
-                        </Text>
+                        <Text as="p" variant="bodySm">📧 <a href={`mailto:${supplier.email}`}>{supplier.email}</a></Text>
                       )}
-                      {supplier.phone && (
-                        <Text as="p" variant="bodySm">📞 {supplier.phone}</Text>
-                      )}
-                      {supplier.whatsapp && (
-                        <Text as="p" variant="bodySm">💬 {supplier.whatsapp}</Text>
-                      )}
+                      {supplier.phone && <Text as="p" variant="bodySm">📞 {supplier.phone}</Text>}
+                      {supplier.whatsapp && <Text as="p" variant="bodySm">💬 {supplier.whatsapp}</Text>}
                     </BlockStack>
 
                     {supplier.lastNote && (
                       <>
                         <Divider />
-                        <BlockStack gap="100">
+                        <BlockStack gap="050">
                           <Text as="p" variant="bodySm" tone="subdued">Latest note:</Text>
                           <Text as="p" variant="bodySm">
-                            {supplier.lastNote.length > 80
-                              ? supplier.lastNote.slice(0, 80) + "…"
-                              : supplier.lastNote}
+                            {supplier.lastNote.length > 80 ? supplier.lastNote.slice(0, 80) + "…" : supplier.lastNote}
                           </Text>
                           <Text as="p" variant="bodySm" tone="subdued">
-                            {timeAgo(supplier.lastNoteDate!)}
+                            {supplier.lastNoteStaff} · {timeAgo(supplier.lastNoteDate!)}
                           </Text>
                         </BlockStack>
                       </>
                     )}
 
-                    <Button url={`/app/suppliers/${supplier.id}`} fullWidth>
-                      View notes
-                    </Button>
+                    <InlineStack gap="200">
+                      <Button
+                        onClick={() => navigate(`/app/suppliers/${supplier.id}`)}
+                        fullWidth
+                      >
+                        {supplier.noteCount > 0 ? `View notes (${supplier.noteCount})` : "Add notes"}
+                      </Button>
+                    </InlineStack>
                   </BlockStack>
                 </Card>
               ))}
@@ -186,19 +176,17 @@ export default function SuppliersPage() {
 
       <Modal
         open={showModal}
-        onClose={() => setShowModal(false)}
+        onClose={resetForm}
         title="Add supplier"
         primaryAction={{
           content: "Add supplier",
-          onAction: () => {
-            (document.getElementById("add-supplier-form") as HTMLFormElement)?.submit();
-          },
+          onAction: () => (document.getElementById("add-supplier-form") as HTMLFormElement)?.submit(),
           loading: isSubmitting,
         }}
-        secondaryActions={[{ content: "Cancel", onAction: () => setShowModal(false) }]}
+        secondaryActions={[{ content: "Cancel", onAction: resetForm }]}
       >
         <Modal.Section>
-          <Form method="post" id="add-supplier-form">
+          <Form method="post" id="add-supplier-form" onSubmit={() => setTimeout(resetForm, 500)}>
             <input type="hidden" name="intent" value="add_supplier" />
             <BlockStack gap="300">
               <TextField label="Supplier name" name="name" value={name} onChange={setName} autoComplete="off" requiredIndicator />

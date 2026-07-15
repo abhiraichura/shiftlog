@@ -17,16 +17,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const [pendingCount, todayShiftCount, todayRefunds, customerWarnings, recentAudit, recentShifts, totalShiftNotes] =
-    await Promise.all([
-      prisma.pendingItem.count({ where: { storeId: store.id, resolvedAt: null } }),
-      prisma.shiftNote.count({ where: { storeId: store.id, createdAt: { gte: today } } }),
-      prisma.auditLog.findMany({ where: { storeId: store.id, actionType: "REFUND_ISSUED", detectedAt: { gte: today } } }),
-      prisma.customerNote.count({ where: { storeId: store.id, isWarning: true } }),
-      prisma.auditLog.findMany({ where: { storeId: store.id }, orderBy: { detectedAt: "desc" }, take: 6, include: { staffMember: true } }),
-      prisma.shiftNote.findMany({ where: { storeId: store.id }, orderBy: { createdAt: "desc" }, take: 4, include: { staffMember: true } }),
-      prisma.shiftNote.count({ where: { storeId: store.id } }),
-    ]);
+  const [
+    pendingCount, todayShiftCount, todayRefunds,
+    customerWarnings, recentAudit, recentShifts, totalShiftNotes,
+  ] = await Promise.all([
+    prisma.pendingItem.count({ where: { storeId: store.id, resolvedAt: null } }),
+    prisma.shiftNote.count({ where: { storeId: store.id, createdAt: { gte: today } } }),
+    prisma.auditLog.findMany({ where: { storeId: store.id, actionType: "REFUND_ISSUED", detectedAt: { gte: today } } }),
+    prisma.customerNote.count({ where: { storeId: store.id, isWarning: true } }),
+    prisma.auditLog.findMany({ where: { storeId: store.id }, orderBy: { detectedAt: "desc" }, take: 6, include: { staffMember: true } }),
+    prisma.shiftNote.findMany({ where: { storeId: store.id }, orderBy: { createdAt: "desc" }, take: 4, include: { staffMember: true } }),
+    prisma.shiftNote.count({ where: { storeId: store.id } }),
+  ]);
 
   const totalRefundedToday = todayRefunds.reduce((sum, r) => sum + ((r.metadata as any)?.amount ?? 0), 0);
   const trialDaysRemaining = getTrialDaysRemaining(store);
@@ -58,10 +60,10 @@ const ACTION_TONES: Record<string, "critical" | "warning" | "info" | "success"> 
   NOTE_ADDED: "info", CUSTOMER_TAGGED: "info", PRODUCT_STOCK_CHANGED: "warning",
 };
 const ACTION_LABELS: Record<string, string> = {
-  REFUND_ISSUED: "Refund", ORDER_CANCELLED: "Cancelled",
+  REFUND_ISSUED: "Refund issued", ORDER_CANCELLED: "Order cancelled",
   PRODUCT_PRICE_CHANGED: "Price changed", ORDER_EDITED: "Order edited",
   FULFILLMENT_UPDATED: "Fulfilled", NOTE_ADDED: "Note added",
-  DISCOUNT_APPLIED: "Discount", CUSTOMER_TAGGED: "Tagged",
+  DISCOUNT_APPLIED: "Discount applied", CUSTOMER_TAGGED: "Customer tagged",
 };
 
 export default function Dashboard() {
@@ -74,7 +76,7 @@ export default function Dashboard() {
   const h = new Date().getHours();
   const greeting = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
   const name = staffMember?.name?.split(" ")[0] ?? store.ownerName?.split(" ")[0] ?? "there";
-  const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  const todayStr = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
   return (
     <Page>
@@ -107,7 +109,7 @@ export default function Dashboard() {
           <InlineStack align="space-between" blockAlignment="center">
             <BlockStack gap="100">
               <Text as="h1" variant="headingXl">{greeting}, {name} 👋</Text>
-              <Text as="p" tone="subdued">{today}</Text>
+              <Text as="p" tone="subdued">{todayStr}</Text>
             </BlockStack>
             <Button url="/app/shifts" variant="primary" size="large">Write shift note</Button>
           </InlineStack>
@@ -122,7 +124,7 @@ export default function Dashboard() {
               { label: "Customer warnings", value: customerWarnings, tone: customerWarnings > 0 ? "warning" : undefined, sub: customerWarnings > 0 ? "Flagged" : "None", url: "/app/customers" },
             ].map((stat) => (
               <Card key={stat.label}>
-                <BlockStack gap="300">
+                <BlockStack gap="200">
                   <Text as="p" variant="bodySm" tone="subdued">{stat.label}</Text>
                   <Text as="p" variant="heading2xl" tone={stat.tone as any}>{stat.value}</Text>
                   <Text as="p" variant="bodySm" tone="subdued">{stat.sub}</Text>
@@ -148,8 +150,10 @@ export default function Dashboard() {
                   <BlockStack gap="300">
                     {recentAudit.map((e) => (
                       <InlineStack key={e.id} align="space-between" blockAlignment="start">
-                        <InlineStack gap="200">
-                          <Badge tone={ACTION_TONES[e.actionType] ?? "info"}>{ACTION_LABELS[e.actionType] ?? e.actionType}</Badge>
+                        <InlineStack gap="200" blockAlignment="start">
+                          <Badge tone={ACTION_TONES[e.actionType] ?? "info"}>
+                            {ACTION_LABELS[e.actionType] ?? e.actionType}
+                          </Badge>
                           <BlockStack gap="050">
                             <Text as="p" variant="bodySm">{e.resourceLabel}</Text>
                             <Text as="p" variant="bodySm" tone="subdued">{e.staffName}</Text>
@@ -178,7 +182,12 @@ export default function Dashboard() {
                 ) : (
                   <BlockStack gap="200">
                     {recentShifts.map((note) => (
-                      <Box key={note.id} background={note.needsOwner && !note.resolvedAt ? "bg-surface-critical-subdued" : "bg-surface-secondary"} borderRadius="200" padding="300">
+                      <Box
+                        key={note.id}
+                        background={note.needsOwner && !note.resolvedAt ? "bg-surface-critical-subdued" : "bg-surface-secondary"}
+                        borderRadius="200"
+                        padding="300"
+                      >
                         <BlockStack gap="100">
                           <InlineStack align="space-between">
                             <InlineStack gap="200">
@@ -206,11 +215,11 @@ export default function Dashboard() {
               <Text as="h2" variant="headingMd">Quick actions</Text>
               <Divider />
               <InlineStack gap="300" wrap>
-                <Button url="/app/shifts">📝 Shift note</Button>
-                <Button url="/app/pending">⚠️ Pending items</Button>
-                <Button url="/app/suppliers">🏭 Suppliers</Button>
+                <Button url="/app/shifts">📝 Write shift note</Button>
+                <Button url="/app/pending">⚠️ View pending items</Button>
+                <Button url="/app/suppliers">🏭 Supplier notes</Button>
                 <Button url="/app/team">👥 Invite staff</Button>
-                <Button url="/app/settings/billing">💳 Billing</Button>
+                <Button url="/app/settings/billing">💳 Manage billing</Button>
                 <Button url="/app/settings">⚙️ Settings</Button>
               </InlineStack>
             </BlockStack>

@@ -1,21 +1,13 @@
 import { type LoaderFunctionArgs, json } from "@remix-run/node";
-import { getStoreAndStaff } from "~/utils/store.server";
-import { timeAgo } from "~/utils/helpers";
 import { useLoaderData } from "@remix-run/react";
 import {
-  Page,
-  Layout,
-  Card,
-  IndexTable,
-  Text,
-  Badge,
-  Button,
-  EmptyState,
-  BlockStack,
-  Banner,
+  Page, Layout, Card, IndexTable, Text, Badge,
+  Button, EmptyState, BlockStack, Banner,
 } from "@shopify/polaris";
 import { authenticate } from "~/shopify.server";
 import prisma from "~/db.server";
+import { getStoreAndStaff } from "~/utils/store.server";
+import { timeAgo } from "~/utils/helpers";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -27,19 +19,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     include: { staffMember: true },
   });
 
-  // Group by customer
-  const customerMap = new Map<
-    string,
-    {
-      shopifyCustomerId: string;
-      customerName: string;
-      customerEmail: string | null;
-      hasWarning: boolean;
-      noteCount: number;
-      lastNote: string;
-      lastDate: string;
-    }
-  >();
+  const customerMap = new Map<string, {
+    shopifyCustomerId: string;
+    customerName: string;
+    customerEmail: string | null;
+    hasWarning: boolean;
+    noteCount: number;
+    lastNote: string;
+    lastDate: string;
+    lastStaff: string;
+  }>();
 
   for (const n of notes) {
     const existing = customerMap.get(n.shopifyCustomerId);
@@ -52,6 +41,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         noteCount: 1,
         lastNote: n.note,
         lastDate: n.createdAt.toISOString(),
+        lastStaff: n.staffMember.name,
       });
     } else {
       existing.noteCount++;
@@ -59,43 +49,49 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
   }
 
+  const numericId = (gid: string) => gid.replace("gid://shopify/Customer/", "");
+
   return json({
     customers: Array.from(customerMap.values()),
     shop: store.shop,
+    numericIdMap: Object.fromEntries(
+      Array.from(customerMap.values()).map((c) => [c.shopifyCustomerId, numericId(c.shopifyCustomerId)])
+    ),
   });
 };
 
 export default function CustomersPage() {
-  const { customers, shop } = useLoaderData<typeof loader>();
-
+  const { customers, shop, numericIdMap } = useLoaderData<typeof loader>();
   const warningCount = customers.filter((c) => c.hasWarning).length;
 
   return (
     <Page
       title="Customer Notes"
-      subtitle="Customers with internal notes. Warning customers are shown first."
+      subtitle="Internal notes on customers. Warning customers are shown first."
     >
       <Layout>
         {warningCount > 0 && (
           <Layout.Section>
-            <Banner tone="warning" title={`${warningCount} customer${warningCount !== 1 ? "s" : ""} flagged with warnings`}>
-              <p>Warning customers are highlighted to alert all staff when their profile is opened.</p>
+            <Banner
+              tone="warning"
+              title={`${warningCount} customer${warningCount !== 1 ? "s" : ""} flagged with warnings`}
+            >
+              <p>Warning customers show a red alert in the ShiftLog panel when their profile is opened by any staff member.</p>
             </Banner>
           </Layout.Section>
         )}
 
         <Layout.Section>
-          <Card>
+          <Card padding="0">
             {customers.length === 0 ? (
-              <EmptyState
-                heading="No customer notes yet"
-                image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
-              >
-                <p>
-                  Open any customer profile in your Shopify admin and use the ShiftLog panel to
-                  add notes or flag customers as warnings.
-                </p>
-              </EmptyState>
+              <div style={{ padding: "2rem" }}>
+                <EmptyState
+                  heading="No customer notes yet"
+                  image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+                >
+                  <p>Open any customer in Shopify admin, click <strong>+ Block</strong> and add <strong>ShiftLog — Customer Notes</strong>. Notes appear here automatically.</p>
+                </EmptyState>
+              </div>
             ) : (
               <IndexTable
                 resourceName={{ singular: "customer", plural: "customers" }}
@@ -103,9 +99,11 @@ export default function CustomersPage() {
                 selectable={false}
                 headings={[
                   { title: "Customer" },
+                  { title: "Email" },
                   { title: "Status" },
                   { title: "Notes" },
                   { title: "Last note" },
+                  { title: "By" },
                   { title: "" },
                 ]}
               >
@@ -117,18 +115,18 @@ export default function CustomersPage() {
                     tone={customer.hasWarning ? "critical" : undefined}
                   >
                     <IndexTable.Cell>
-                      <BlockStack gap="100">
-                        <Text as="span" fontWeight="semibold">{customer.customerName}</Text>
-                        {customer.customerEmail && (
-                          <Text as="span" variant="bodySm" tone="subdued">{customer.customerEmail}</Text>
-                        )}
-                      </BlockStack>
+                      <Text as="span" fontWeight="semibold">{customer.customerName}</Text>
+                    </IndexTable.Cell>
+                    <IndexTable.Cell>
+                      <Text as="span" variant="bodySm" tone="subdued">
+                        {customer.customerEmail ?? "—"}
+                      </Text>
                     </IndexTable.Cell>
                     <IndexTable.Cell>
                       {customer.hasWarning ? (
                         <Badge tone="critical">⚠ Warning</Badge>
                       ) : (
-                        <Badge>Note</Badge>
+                        <Badge tone="info">Note</Badge>
                       )}
                     </IndexTable.Cell>
                     <IndexTable.Cell>
@@ -136,17 +134,20 @@ export default function CustomersPage() {
                     </IndexTable.Cell>
                     <IndexTable.Cell>
                       <Text as="span" variant="bodySm" tone="subdued">
-                        {customer.lastNote.length > 60
-                          ? customer.lastNote.slice(0, 60) + "…"
+                        {customer.lastNote.length > 50
+                          ? customer.lastNote.slice(0, 50) + "…"
                           : customer.lastNote}
+                        <br />
+                        {timeAgo(customer.lastDate)}
                       </Text>
-                      <br />
-                      <Text as="span" variant="bodySm" tone="subdued">{timeAgo(customer.lastDate)}</Text>
+                    </IndexTable.Cell>
+                    <IndexTable.Cell>
+                      <Text as="span" variant="bodySm">{customer.lastStaff}</Text>
                     </IndexTable.Cell>
                     <IndexTable.Cell>
                       <Button
                         size="slim"
-                        url={`https://${shop}/admin/customers/${customer.shopifyCustomerId.replace("gid://shopify/Customer/", "")}`}
+                        url={`https://${shop}/admin/customers/${numericIdMap[customer.shopifyCustomerId]}`}
                         target="_blank"
                       >
                         Open in Shopify
